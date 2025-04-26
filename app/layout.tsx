@@ -19,9 +19,11 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={inter.className}>
-        <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false} disableTransitionOnChange>
-          {children}
-        </ThemeProvider>
+      <AuthProvider>
+          <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false} disableTransitionOnChange>
+            {children}
+          </ThemeProvider>
+      </AuthProvider>
       </body>
     </html>
   )
@@ -30,3 +32,4 @@ export default function RootLayout({
 
 
 import './globals.css'
+import {AuthProvider} from "@/components/providers/AuthProvider";
