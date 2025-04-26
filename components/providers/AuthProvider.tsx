@@ -15,7 +15,7 @@ interface SignupData {
 interface SessionContextType {
     token: string | null;
     login: (email: string, password: string) => Promise<void>;
-    logout: () => void;
+    logout:  () => Promise<void>;
     signup: (data: SignupData) => Promise<void>;
 }
 
