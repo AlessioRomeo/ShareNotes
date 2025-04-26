@@ -8,11 +8,15 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { LoginRequest, SignupRequest, AuthResponse } from "@/types"
+import { LoginRequest, SignupRequest } from "@/types"
+import {useToast} from "@/hooks/use-toast";
+import {useAuth} from "@/components/providers/AuthProvider";
 
 export function AuthForm() {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
+  const {toast} = useToast();
+  const {login, signup} = useAuth();
 
   const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -24,11 +28,19 @@ export function AuthForm() {
       password: formData.get('password') as string,
     }
 
-    // Simulate authentication
-    setTimeout(() => {
+    try {
+      await login(loginData.email, loginData.password)
       setIsLoading(false)
       router.push("/dashboard")
-    }, 1000)
+    } catch (e) {
+      if (e instanceof Error) {
+        toast({
+          title: "Error logging in",
+          description: e.message,
+        })
+        setIsLoading(false)
+      }
+    }
   }
 
   const handleSignup = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -42,11 +54,18 @@ export function AuthForm() {
       password: formData.get('password-signup') as string,
     }
 
-    // Simulate authentication
-    setTimeout(() => {
-      setIsLoading(false)
-      router.push("/dashboard")
-    }, 1000)
+    //todo: this takes firstName and lastName as two separate fields, also takes a username field.
+
+    try {
+      await signup({firstName: signupData.name, lastName: signupData.name, email: signupData.email, username: signupData.email, password: signupData.password})
+    } catch (e) {
+      if (e instanceof Error) {
+        toast({
+          title: "Error creating account",
+          description: e.message,
+        })
+      }
+    }
   }
 
   return (
