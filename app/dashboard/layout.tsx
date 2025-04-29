@@ -1,4 +1,4 @@
-'use client';
+"use client";
 
 import React, { useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
@@ -16,7 +16,6 @@ import {
   SidebarGroupLabel,
   SidebarGroupContent,
   SidebarInset,
-  useSidebar,
 } from "@/components/ui/sidebar";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -38,17 +37,18 @@ import {
 import { CreateNoteDialog } from "@/components/create-note-dialog";
 import { ThemeToggle } from "@/components/theme-toggle";
 
-import { ProfileProvider, useProfile } from "@/components/providers/ProfileProvider";
+// Notice: we useProfile() & useAuth(), but DO NOT wrap <ProfileProvider> here.
+import { useProfile } from "@/components/providers/ProfileProvider";
 import { useAuth } from "@/components/providers/AuthProvider";
 
 function SidebarFooterContent() {
-  const { user } = useProfile();
+  const { user } = useProfile(); // user is fetched at the top layout
   const { logout } = useAuth();
   const router = useRouter();
 
   const fullName = `${user.first_name} ${user.last_name}`;
   const initials = [user.first_name, user.last_name]
-      .map(n => n.charAt(0))
+      .map((n) => n.charAt(0))
       .join("");
 
   const handleLogout = async () => {
@@ -67,9 +67,7 @@ function SidebarFooterContent() {
                   <AvatarFallback>{initials}</AvatarFallback>
               )}
             </Avatar>
-            <span className="group-data-[collapsible=icon]:hidden">
-            {fullName}
-          </span>
+            <span className="group-data-[collapsible=icon]:hidden">{fullName}</span>
             <ChevronDown className="ml-auto h-4 w-4 group-data-[collapsible=icon]:hidden" />
           </Button>
         </DropdownMenuTrigger>
@@ -82,10 +80,7 @@ function SidebarFooterContent() {
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem asChild>
-            <button
-                onClick={handleLogout}
-                className="flex items-center w-full text-left"
-            >
+            <button onClick={handleLogout} className="flex items-center w-full text-left">
               <LogOut className="mr-2 h-4 w-4" />
               Log out
             </button>
@@ -95,11 +90,7 @@ function SidebarFooterContent() {
   );
 }
 
-export default function DashboardLayout({
-                                          children,
-                                        }: {
-  children: React.ReactNode;
-}) {
+export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [isCreateNoteOpen, setIsCreateNoteOpen] = useState(false);
 
@@ -112,92 +103,88 @@ export default function DashboardLayout({
   };
 
   return (
-      <ProfileProvider>
-        <SidebarProvider>
-          <div className="flex h-screen w-full overflow-hidden">
-            <Sidebar variant="inset" collapsible="icon">
-              <SidebarHeader className="flex items-center justify-between p-4">
-                <div className="font-bold text-xl group-data-[collapsible=icon]:hidden">
-                  ShareNotes
-                </div>
-              </SidebarHeader>
-              <SidebarContent>
-                <SidebarGroup>
-                  <SidebarGroupLabel>Menu</SidebarGroupLabel>
-                  <SidebarGroupContent>
-                    <SidebarMenu>
-                      <SidebarMenuItem>
-                        <SidebarMenuButton
-                            asChild
-                            isActive={pathname === "/dashboard"}
-                            tooltip="Dashboard"
-                        >
-                          <a href="/dashboard">
-                            <Home className="h-5 w-5" />
-                            <span>Dashboard</span>
-                          </a>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                      <SidebarMenuItem>
-                        <SidebarMenuButton
-                            asChild
-                            isActive={pathname === "/dashboard/shared"}
-                            tooltip="Shared with me"
-                        >
-                          <a href="/dashboard/shared">
-                            <Share2 className="h-5 w-5" />
-                            <span>Shared with me</span>
-                          </a>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                      <SidebarMenuItem>
-                        <SidebarMenuButton
-                            asChild
-                            isActive={pathname === "/dashboard/settings"}
-                            tooltip="Settings"
-                        >
-                          <a href="/dashboard/settings">
-                            <Settings className="h-5 w-5" />
-                            <span>Settings</span>
-                          </a>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                    </SidebarMenu>
-                  </SidebarGroupContent>
-                </SidebarGroup>
-              </SidebarContent>
+      // We keep all the same sidebar code
+      <SidebarProvider>
+        <div className="flex h-screen w-full overflow-hidden">
+          <Sidebar variant="inset" collapsible="icon">
+            <SidebarHeader className="flex items-center justify-between p-4">
+              <div className="font-bold text-xl group-data-[collapsible=icon]:hidden">
+                ShareNotes
+              </div>
+            </SidebarHeader>
+            <SidebarContent>
+              <SidebarGroup>
+                <SidebarGroupLabel>Menu</SidebarGroupLabel>
+                <SidebarGroupContent>
+                  <SidebarMenu>
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                          asChild
+                          isActive={pathname === "/dashboard"}
+                          tooltip="Dashboard"
+                      >
+                        <a href="/dashboard">
+                          <Home className="h-5 w-5" />
+                          <span>Dashboard</span>
+                        </a>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                          asChild
+                          isActive={pathname === "/dashboard/shared"}
+                          tooltip="Shared with me"
+                      >
+                        <a href="/dashboard/shared">
+                          <Share2 className="h-5 w-5" />
+                          <span>Shared with me</span>
+                        </a>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                          asChild
+                          isActive={pathname === "/dashboard/settings"}
+                          tooltip="Settings"
+                      >
+                        <a href="/dashboard/settings">
+                          <Settings className="h-5 w-5" />
+                          <span>Settings</span>
+                        </a>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              </SidebarGroup>
+            </SidebarContent>
+            <SidebarFooter className="p-4">
+              <SidebarFooterContent />
+            </SidebarFooter>
+          </Sidebar>
 
-              <SidebarFooter className="p-4">
-                <SidebarFooterContent />
-              </SidebarFooter>
-            </Sidebar>
+          <SidebarInset className="flex flex-col w-full h-full">
+            <header className="border-b p-4 flex items-center shrink-0">
+              <SidebarTrigger className="mr-2" />
+              <div className="flex-1">
+                <h1 className="text-xl font-bold group-data-[collapsible=icon]:hidden">
+                  {getPageTitle()}
+                </h1>
+              </div>
+              <ThemeToggle className="mr-2" />
+              <Button onClick={() => setIsCreateNoteOpen(true)}>
+                <PlusCircle className="mr-2 h-4 w-4" />
+                New Note
+              </Button>
+            </header>
 
-            <SidebarInset className="flex flex-col w-full h-full">
-              <header className="border-b p-4 flex items-center shrink-0">
-                <SidebarTrigger className="mr-2" />
-                <div className="flex-1">
-                  <h1 className="text-xl font-bold group-data-[collapsible=icon]:hidden">
-                    {getPageTitle()}
-                  </h1>
-                </div>
-                <ThemeToggle className="mr-2" />
-                <Button onClick={() => setIsCreateNoteOpen(true)}>
-                  <PlusCircle className="mr-2 h-4 w-4" />
-                  New Note
-                </Button>
-              </header>
+            <main className="flex-1 overflow-auto p-6 w-full h-full">
+              {children}
+            </main>
+          </SidebarInset>
+        </div>
 
-              <main className="flex-1 overflow-auto p-6 w-full h-full">
-                {children}
-              </main>
-            </SidebarInset>
-          </div>
-
-          <CreateNoteDialog
-              open={isCreateNoteOpen}
-              onOpenChange={setIsCreateNoteOpen}
-          />
-        </SidebarProvider>
-      </ProfileProvider>
+        {/* The "New Note" dialog remains exactly as before */}
+        <CreateNoteDialog open={isCreateNoteOpen} onOpenChange={setIsCreateNoteOpen} />
+      </SidebarProvider>
   );
 }

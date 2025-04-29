@@ -1,60 +1,94 @@
-import { NoteGrid } from "@/components/note-grid"
+"use client";
 
+import { useEffect, useState } from "react";
+import { NoteGrid } from "@/components/note-grid";
+import api from "@/lib/api";
+import { useProfile } from "@/components/providers/ProfileProvider";
+
+/**
+ * Dashboard: "Your Notes" means boards where board.owner_id === user._id.
+ */
 export default function Dashboard() {
-  // In a real app, we would fetch the user's notes from an API
-  const notes = [
-    {
-      id: "1",
-      title: "Project Brainstorm",
-      description: "Ideas for the new project",
-      updatedAt: "2023-04-15T10:30:00Z",
-      collaborators: 3,
-    },
-    {
-      id: "2",
-      title: "Team Meeting Notes",
-      description: "Notes from our weekly team meeting",
-      updatedAt: "2023-04-14T15:45:00Z",
-      collaborators: 5,
-    },
-    {
-      id: "3",
-      title: "Product Roadmap",
-      description: "Planning our product roadmap for Q2",
-      updatedAt: "2023-04-12T09:15:00Z",
-      collaborators: 2,
-    },
-    {
-      id: "4",
-      title: "UI Design Feedback",
-      description: "Feedback on the new UI design",
-      updatedAt: "2023-04-10T14:20:00Z",
-      collaborators: 4,
-    },
-    {
-      id: "5",
-      title: "Marketing Strategy",
-      description: "Ideas for our Q2 marketing campaign",
-      updatedAt: "2023-04-08T11:10:00Z",
-      collaborators: 3,
-    },
-    {
-      id: "6",
-      title: "Bug Tracking",
-      description: "List of bugs to fix for the next release",
-      updatedAt: "2023-04-05T16:30:00Z",
-      collaborators: 2,
-    },
-  ]
+  const { user } = useProfile();
+  const [notes, setNotes] = useState<any[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function fetchBoards() {
+      setLoading(true);
+      setError(null);
+
+      try {
+        // GET /api/boards/list
+        const res = await api.get("/boards/list");
+        const allBoards = res.data; // array of boards
+
+        // user._id is the user ID from whoami. Compare to board.owner_id.
+        const myBoards = allBoards.filter(
+            (board: any) => board.owner_id === user._id
+        );
+
+        // Transform boards for NoteGrid
+        // The grid expects { id, title, description, updatedAt, collaborators, ... }
+        const transformed = myBoards.map((board: any) => ({
+          id: board._id, // Use the board's _id as the unique ID
+          title: board.title || "Untitled",
+          description: board.description || "",
+          updatedAt: board.updated_at,
+          // collaborators = shared_with.length + 1 (owner + shared users)
+          collaborators: (board.shared_with?.length ?? 0) + 1,
+        }));
+
+        if (isMounted) {
+          setNotes(transformed);
+        }
+      } catch (err: any) {
+        if (isMounted) {
+          setError(err.message || "Failed to load boards");
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    }
+
+    // Only fetch if we have the user’s ID loaded
+    if (user && user._id) {
+      fetchBoards();
+    }
+    return () => {
+      isMounted = false;
+    };
+  }, [user]);
 
   return (
-    <div className="space-y-6 w-full h-full">
-      <div>
-        <h2 className="text-2xl font-bold tracking-tight">Your Notes</h2>
-        <p className="text-muted-foreground">Create, manage, and collaborate on your notes</p>
-      </div>
-      <NoteGrid notes={notes} />
-    </div>
-  )
-}
+      <div className="space-y-6 w-full h-full">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight">Your Notes</h2>
+          <p className="text-muted-foreground">
+            Create, manage, and collaborate on your notes
+          </p>
+        </div>
 
+        {loading && (
+            <p className="text-sm text-muted-foreground">Loading your boards...</p>
+        )}
+
+        {error && (
+            <p className="text-sm text-red-500">Error loading boards: {error}</p>
+        )}
+
+        {!loading && !error && notes.length === 0 && (
+            <p className="text-sm text-muted-foreground">No boards found.</p>
+        )}
+
+        {!loading && !error && notes.length > 0 && (
+            <NoteGrid notes={notes} />
+        )}
+      </div>
+  );
+}
