@@ -1,18 +1,17 @@
 export interface Note {
   id: string
   title: string
+  description: string
   content: string
   ownerId: string
-  createdAt: string
-  updatedAt: string
-  isPublic: boolean
-  collaborators: Collaborator[]
+  created_at: string
+  updated_at: string
+  shared_with: Collaborator[]
 }
 
 export interface Collaborator {
-  userId: string
-  role: 'viewer' | 'editor'
-  addedAt: string
+  user_email: string
+  can_update: boolean
 }
 
 export interface CreateNoteRequest {

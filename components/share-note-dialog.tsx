@@ -1,293 +1,231 @@
-"use client";
+"use client"
 
-import * as React from "react";
+import { useState, useEffect } from "react"
+import { Button } from "@/components/ui/button"
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
-import { Checkbox } from "@/components/ui/checkbox";
-import { useToast } from "@/hooks/use-toast";
-import api from "@/lib/api";
-import { Share2 } from "lucide-react";
-
-/**
- * The board structure from the backend's GET /boards/{id}.
- * "shared_with" is an array of objects like { user_id: string, can_update: boolean }.
- */
-interface BoardResponse {
-  _id: string;
-  owner_id: string;
-  title: string;
-  description?: string;
-  shared_with: {
-    user_id: string;    // The Mongo ObjectId of the user
-    can_update: boolean;
-  }[];
-  // plus other fields: canvas_operations, created_at, updated_at, etc.
-}
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { useToast } from "@/hooks/use-toast"
+import { Copy, Check, X, Edit, Eye } from "lucide-react"
+import api from "@/lib/api"
+import type { Note, Collaborator } from "@/types"
 
 interface ShareNoteDialogProps {
-  noteId: string; // This is the board's ObjectId
-  open?: boolean;
-  onOpenChange?: (open: boolean) => void;
+    noteId: string
+    open: boolean
+    onOpenChange: (open: boolean) => void
 }
 
 export function ShareNoteDialog({ noteId, open, onOpenChange }: ShareNoteDialogProps) {
-  const { toast } = useToast();
+    const { toast } = useToast()
+    const [email, setEmail] = useState("")
+    const [isLoading, setIsLoading] = useState(false)
+    const [isRevoking, setIsRevoking] = useState<string | null>(null)
+    const [copied, setCopied] = useState(false)
+    const [note, setNote] = useState<Note | null>(null)
+    const [isLoadingNote, setIsLoadingNote] = useState(false)
 
-  // We can control the dialog's open state internally if no external props given
-  const [internalOpen, setInternalOpen] = React.useState(false);
-  const isControlled = open !== undefined && onOpenChange !== undefined;
-  const isOpen = isControlled ? open : internalOpen;
-  const setIsOpen = isControlled ? onOpenChange! : setInternalOpen;
+    // Fetch note data when dialog opens
+    useEffect(() => {
+        if (open && noteId) {
+            const fetchNote = async () => {
+                setIsLoadingNote(true)
+                try {
+                    const response = await api.get(`/boards/${noteId}`)
+                    setNote(response.data)
+                } catch (error) {
+                    console.error("Failed to fetch note:", error)
+                    toast({
+                        title: "Failed to fetch note details",
+                        description: "Could not load sharing information.",
+                        duration: 3000,
+                    })
+                } finally {
+                    setIsLoadingNote(false)
+                }
+            }
 
-  // Board data
-  const [sharedWith, setSharedWith] = React.useState<BoardResponse["shared_with"]>([]);
-  const [boardLoading, setBoardLoading] = React.useState(false);
-  const [boardError, setBoardError] = React.useState<string | null>(null);
+            fetchNote()
+        }
+    }, [noteId, open, toast])
 
-  // For sharing/removing a user
-  const [username, setUsername] = React.useState("");
-  const [canUpdate, setCanUpdate] = React.useState(false);
-  const [isSubmitting, setIsSubmitting] = React.useState(false);
+    const shareableLink = `${window.location.origin}/shared/note/${noteId}`
 
-  /**
-   * Fetch the board data once the dialog is opened,
-   * so we can display its existing "shared_with" array.
-   */
-  React.useEffect(() => {
-    if (!isOpen) return; // only fetch if dialog is actually open
-    let cancel = false;
-
-    (async () => {
-      setBoardLoading(true);
-      setBoardError(null);
-      try {
-        const res = await api.get<BoardResponse>(`/boards/${noteId}`);
-        if (cancel) return;
-        setSharedWith(res.data.shared_with);
-      } catch (err: any) {
-        if (cancel) return;
-        const msg = err?.response?.data || err?.message || "Failed to load board data";
-        setBoardError(msg);
-      } finally {
-        if (!cancel) setBoardLoading(false);
-      }
-    })();
-
-    return () => {
-      cancel = true;
-    };
-  }, [isOpen, noteId]);
-
-  /**
-   * Helper to re-fetch the board so that shared_with is up to date.
-   */
-  async function refetchBoard() {
-    setBoardLoading(true);
-    setBoardError(null);
-    try {
-      const res = await api.get<BoardResponse>(`/boards/${noteId}`);
-      setSharedWith(res.data.shared_with);
-    } catch (err: any) {
-      const msg = err?.response?.data || err?.message || "Failed to refresh board data";
-      setBoardError(msg);
-    } finally {
-      setBoardLoading(false);
+    const copyLink = () => {
+        navigator.clipboard.writeText(shareableLink)
+        setCopied(true)
+        toast({
+            title: "Link copied",
+            description: "The shareable link has been copied to your clipboard.",
+            duration: 3000,
+        })
+        setTimeout(() => setCopied(false), 2000)
     }
-  }
 
-  /**
-   * Share (add user).
-   * The backend expects a payload: { usernames: [string], action: "share", can_update: boolean }.
-   * It will look up that user by username, then add them to the "shared_with".
-   */
-  async function handleShare() {
-    if (!username.trim()) return;
-    setIsSubmitting(true);
+    const handleShare = async () => {
+        if (!email.trim()) return
 
-    try {
-      await api.post(`/boards/${noteId}/share`, {
-        usernames: [username.trim()],
-        action: "share",
-        can_update: canUpdate,
-      });
+        setIsLoading(true)
+        try {
+            await api.post(`/boards/${noteId}/share`, {
+                emails: [email],
+                action: "share",
+                can_update: false, // Default to view-only access
+            })
 
-      toast({
-        title: "User shared",
-        description: `Granted access to "${username.trim()}"`,
-      });
+            toast({
+                title: "Note shared",
+                description: `The note has been shared with ${email}.`,
+                duration: 3000,
+            })
+            setEmail("")
 
-      // Clear inputs
-      setUsername("");
-      setCanUpdate(false);
-
-      // Refresh board data to see updated "shared_with"
-      await refetchBoard();
-    } catch (err: any) {
-      const msg = err?.response?.data || err?.message || "Failed to share the board";
-      toast({
-        title: "Error",
-        description: msg,
-        variant: "destructive",
-      });
-    } finally {
-      setIsSubmitting(false);
+            // Refresh note data to update shared_with list
+            const response = await api.get(`/boards/${noteId}`)
+            setNote(response.data)
+        } catch (error) {
+            console.error("Failed to share note:", error)
+            toast({
+                title: "Failed to share note",
+                description: "Please check the email address and try again.",
+                duration: 3000,
+            })
+        } finally {
+            setIsLoading(false)
+        }
     }
-  }
 
-  /**
-   * Revoke (remove user).
-   * The backend expects { usernames: [string], action: "revoke" }.
-   */
-  async function handleRevoke() {
-    if (!username.trim()) return;
-    setIsSubmitting(true);
+    const handleRevokeAccess = async (collaborator: Collaborator) => {
+        const emailToRevoke = collaborator.user_email
+        setIsRevoking(emailToRevoke)
+        try {
+            await api.post(`/boards/${noteId}/share`, {
+                emails: [emailToRevoke],
+                action: "revoke",
+            })
 
-    try {
-      await api.post(`/boards/${noteId}/share`, {
-        usernames: [username.trim()],
-        action: "revoke",
-      });
+            toast({
+                title: "Access revoked",
+                description: `Access has been revoked for ${emailToRevoke}.`,
+                duration: 3000,
+            })
 
-      toast({
-        title: "User removed",
-        description: `Revoked access for "${username.trim()}"`,
-      });
-
-      // Clear input
-      setUsername("");
-      setCanUpdate(false);
-
-      // Refresh board data
-      await refetchBoard();
-    } catch (err: any) {
-      const msg = err?.response?.data || err?.message || "Failed to remove the user";
-      toast({
-        title: "Error",
-        description: msg,
-        variant: "destructive",
-      });
-    } finally {
-      setIsSubmitting(false);
+            // Refresh note data to update shared_with list
+            const response = await api.get(`/boards/${noteId}`)
+            setNote(response.data)
+        } catch (error) {
+            console.error("Failed to revoke access:", error)
+            toast({
+                title: "Failed to revoke access",
+                description: "An error occurred while revoking access.",
+                duration: 3000,
+            })
+        } finally {
+            setIsRevoking(null)
+        }
     }
-  }
 
-  return (
-      <Dialog open={isOpen} onOpenChange={setIsOpen}>
-        {!isControlled && (
-            <DialogTrigger asChild>
-              <Button>
-                <Share2 className="mr-2 h-4 w-4" />
-                Share
-              </Button>
-            </DialogTrigger>
-        )}
+    return (
+        <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                    <DialogTitle>Share note</DialogTitle>
+                    <DialogDescription>Share this note with others via email or by sending them the link.</DialogDescription>
+                </DialogHeader>
 
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>Share board</DialogTitle>
-            <DialogDescription>
-              Enter a username (the user must exist in the DB). You can grant or revoke access.
-            </DialogDescription>
-          </DialogHeader>
-
-          {boardLoading && (
-              <p className="text-sm text-muted-foreground">Loading board info...</p>
-          )}
-          {boardError && (
-              <p className="text-sm text-red-500">
-                Error loading board: {boardError}
-              </p>
-          )}
-
-          {/* Only show form if not loading or error */}
-          {!boardLoading && !boardError && (
-              <>
-                <div className="grid gap-3 py-4">
-                  <div className="grid gap-1">
-                    <Label htmlFor="username">Username</Label>
-                    <Input
-                        id="username"
-                        type="text"
-                        placeholder="e.g. alessioromeo2@gmail.com"
-                        value={username}
-                        onChange={(e) => setUsername(e.target.value)}
-                    />
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <Checkbox
-                        id="canUpdate"
-                        checked={canUpdate}
-                        onCheckedChange={(checked) => setCanUpdate(Boolean(checked))}
-                    />
-                    <Label htmlFor="canUpdate">Can update?</Label>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                        variant="default"
-                        disabled={!username.trim() || isSubmitting}
-                        onClick={handleShare}
-                    >
-                      {isSubmitting ? "Submitting..." : "Add user"}
+                <div className="flex items-center space-x-2 mt-4">
+                    <div className="grid flex-1 gap-2">
+                        <Label htmlFor="link" className="sr-only">
+                            Link
+                        </Label>
+                        <Input id="link" defaultValue={shareableLink} readOnly className="w-full" />
+                    </div>
+                    <Button type="button" size="icon" onClick={copyLink} className="px-3">
+                        {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                        <span className="sr-only">Copy link</span>
                     </Button>
-                    <Button
-                        variant="outline"
-                        disabled={!username.trim() || isSubmitting}
-                        onClick={handleRevoke}
-                    >
-                      {isSubmitting ? "Submitting..." : "Remove user"}
-                    </Button>
-                  </div>
                 </div>
 
-                {/* CURRENT SHARED USERS */}
-                {sharedWith.length > 0 && (
-                    <div className="mt-2">
-                      <Label className="mb-1">Currently shared with:</Label>
-                      <div className="border rounded-md divide-y">
-                        {sharedWith.map((entry) => (
-                            <div
-                                key={entry.user_id}
-                                className="flex items-center justify-between p-2"
-                            >
-                              <div className="text-sm">
-                                {/* user_id is the ObjectId of that user.
-                            The board doc doesn't store username/email, just the ID. */}
-                                <span className="font-medium">{entry.user_id}</span>{" "}
-                                {entry.can_update && (
-                                    <span className="ml-1 text-xs bg-gray-200 px-1 py-0.5 rounded">
-                            can_update
-                          </span>
-                                )}
-                              </div>
-                            </div>
-                        ))}
-                      </div>
+                <div className="flex items-center space-x-2">
+                    <div className="grid flex-1 gap-2">
+                        <Label htmlFor="email" className="sr-only">
+                            Email
+                        </Label>
+                        <Input
+                            id="email"
+                            placeholder="Enter an email address"
+                            type="email"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                        />
+                    </div>
+                    <Button type="button" onClick={handleShare} disabled={isLoading || !email.trim()} className="px-3">
+                        {isLoading ? "Sharing..." : "Share"}
+                    </Button>
+                </div>
+
+                {/* Display shared_with collaborators with revoke button */}
+                {note && note.shared_with && note.shared_with.length > 0 && (
+                    <div className="mt-4">
+                        <h4 className="text-sm font-medium mb-2">Shared with:</h4>
+                        <div className="max-h-40 overflow-y-auto">
+                            <ul className="space-y-1">
+                                {note.shared_with.map((collaborator, index) => (
+                                    <li key={index} className="text-sm px-3 py-1.5 bg-muted rounded-md flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <span>{collaborator.user_email}</span>
+                                            <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold text-muted-foreground">
+                        {collaborator.can_update ? (
+                            <>
+                                <Edit className="mr-1 h-3 w-3" /> Editor
+                            </>
+                        ) : (
+                            <>
+                                <Eye className="mr-1 h-3 w-3" /> Viewer
+                            </>
+                        )}
+                      </span>
+                                        </div>
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-6 w-6 rounded-full hover:bg-destructive/10 hover:text-destructive"
+                                            onClick={() => handleRevokeAccess(collaborator)}
+                                            disabled={isRevoking === collaborator.user_email}
+                                        >
+                                            {isRevoking === collaborator.user_email ? (
+                                                <div className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                                            ) : (
+                                                <X className="h-3 w-3" />
+                                            )}
+                                            <span className="sr-only">Revoke access</span>
+                                        </Button>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
                     </div>
                 )}
-                {sharedWith.length === 0 && (
-                    <p className="text-sm text-muted-foreground mt-2">
-                      This board is not shared with anyone else yet.
-                    </p>
-                )}
-              </>
-          )}
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsOpen(false)}>
-              Done
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-  );
+                {isLoadingNote && (
+                    <div className="text-center py-2">
+                        <p className="text-sm text-muted-foreground">Loading sharing information...</p>
+                    </div>
+                )}
+
+                <DialogFooter className="sm:justify-start">
+                    <DialogDescription className="text-xs text-muted-foreground">
+                        Anyone with the link or added via email will be able to view this note.
+                    </DialogDescription>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    )
 }
