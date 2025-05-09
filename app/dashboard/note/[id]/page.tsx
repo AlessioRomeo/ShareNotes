@@ -1,56 +1,241 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import { useParams } from "next/navigation"
 import { Whiteboard } from "@/components/whiteboard"
 import { ShareNoteDialog } from "@/components/share-note-dialog"
 import { Button } from "@/components/ui/button"
-import { BrainCircuit, Loader2 } from "lucide-react"
+import { BrainCircuit, Loader2, Users } from "lucide-react"
 import { QuizModal, type QuizQuestion } from "@/components/quiz-modal"
 import api from "@/lib/api"
+import type { CanvasOperation } from "@/types/canvas"
+import { useToast } from "@/hooks/use-toast"
+import { useProfile } from "@/components/providers/ProfileProvider"
+
+interface BoardData {
+    id: string
+    title: string
+    description: string
+    owner_email: string
+    canvas_operations: CanvasOperation[]
+    shared_with: any[]
+    created_at: string
+    updated_at: string
+}
+
+// User type for active users
+interface ActiveUser {
+    id: string
+    email: string
+    cursor?: { x: number; y: number }
+}
+
+// Updated WebSocketMessage interface with proper types for all message types
+interface WebSocketMessage {
+    type: string
+    operation?: CanvasOperation
+    operations?: CanvasOperation[]
+    user?: ActiveUser
+    users?: ActiveUser[] // Added users array for active_users message type
+}
 
 export default function NotePage() {
-    // Fix useParams to correctly extract the id as a string
     const params = useParams()
     const id = params.id as string
+    const { toast } = useToast()
+    const { user } = useProfile()
 
     const [isLoading, setIsLoading] = useState(true)
     const [isQuizOpen, setIsQuizOpen] = useState(false)
-    const [noteData, setNoteData] = useState<any>(null)
+    const [isShareOpen, setIsShareOpen] = useState(false)
+    const [boardData, setBoardData] = useState<BoardData | null>(null)
+    const [operations, setOperations] = useState<CanvasOperation[]>([])
+    const [activeUsers, setActiveUsers] = useState<ActiveUser[]>([])
 
+    const socketRef = useRef<WebSocket | null>(null)
+    const isConnectedRef = useRef(false)
+    const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+
+    // Fetch initial board data and canvas operations
     useEffect(() => {
         if (!id) return
 
-        const fetchNote = async () => {
+        const fetchBoard = async () => {
             setIsLoading(true)
             try {
                 const response = await api.get(`/boards/${id}`)
-                setNoteData(response.data)
+                const data = response.data
+                setBoardData(data)
+
+                // Initialize operations from the board data
+                if (data.canvas_operations && Array.isArray(data.canvas_operations)) {
+                    setOperations(data.canvas_operations)
+                }
             } catch (error) {
                 console.error("Error fetching board:", error)
+                toast({
+                    title: "Error",
+                    description: "Failed to load the whiteboard. Please try again.",
+                    variant: "destructive",
+                })
             } finally {
                 setIsLoading(false)
             }
         }
 
-        fetchNote()
-    }, [id])
+        fetchBoard()
+    }, [id, toast])
 
-    // In a real app, we would fetch the note data from an API
-    const note = noteData || {
-        id,
-        title:
-            id === "1"
-                ? "Project Brainstorm"
-                : id === "2"
-                    ? "Team Meeting Notes"
-                    : id === "3"
-                        ? "Product Roadmap"
-                        : "New Note",
-        description: "Collaborative whiteboard for brainstorming and planning.",
+    // Set up WebSocket connection
+    useEffect(() => {
+        if (!id || !user?.email || isConnectedRef.current) return
+
+        const connectWebSocket = () => {
+            // Create WebSocket connection
+            const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
+            const wsUrl = `${protocol}//${window.location.host}/api/boards/${id}/ws?userId=${user.id}&email=${encodeURIComponent(user.email)}`
+
+            const socket = new WebSocket(wsUrl)
+            socketRef.current = socket
+
+            socket.onopen = () => {
+                console.log("WebSocket connection established")
+                isConnectedRef.current = true
+
+                // Clear any reconnect timeout
+                if (reconnectTimeoutRef.current) {
+                    clearTimeout(reconnectTimeoutRef.current)
+                    reconnectTimeoutRef.current = null
+                }
+
+                // Request initial sync
+                socket.send(JSON.stringify({ type: "sync_request" }))
+            }
+
+            socket.onmessage = (event) => {
+                try {
+                    const message = JSON.parse(event.data) as WebSocketMessage
+
+                    switch (message.type) {
+                        case "operation":
+                            if (message.operation) {
+                                // Add new operation to the list
+                                setOperations((prevOperations) => [...prevOperations, message.operation!])
+                            }
+                            break
+                        case "sync":
+                            if (message.operations) {
+                                // Replace all operations with the synced state
+                                setOperations(message.operations)
+                            }
+                            break
+                        case "user_joined":
+                            if (message.user) {
+                                setActiveUsers((prev) => {
+                                    // Add user if not already in the list
+                                    if (!prev.some((u) => u.id === message.user!.id)) {
+                                        return [...prev, message.user!]
+                                    }
+                                    return prev
+                                })
+
+                                toast({
+                                    title: "User joined",
+                                    description: `${message.user.email} joined the whiteboard`,
+                                })
+                            }
+                            break
+                        case "user_left":
+                            if (message.user) {
+                                setActiveUsers((prev) => prev.filter((u) => u.id !== message.user!.id))
+
+                                toast({
+                                    title: "User left",
+                                    description: `${message.user.email} left the whiteboard`,
+                                })
+                            }
+                            break
+                        case "active_users":
+                            if (message.users && Array.isArray(message.users)) {
+                                setActiveUsers(message.users)
+                            }
+                            break
+                        case "cursor_update":
+                            if (message.user && message.user.cursor) {
+                                setActiveUsers((prev) =>
+                                    prev.map((u) => (u.id === message.user!.id ? { ...u, cursor: message.user!.cursor } : u)),
+                                )
+                            }
+                            break
+                    }
+                } catch (error) {
+                    console.error("Error processing WebSocket message:", error)
+                }
+            }
+
+            socket.onerror = (error) => {
+                console.error("WebSocket error:", error)
+            }
+
+            socket.onclose = (event) => {
+                console.log("WebSocket connection closed", event.code, event.reason)
+                isConnectedRef.current = false
+
+                // Attempt to reconnect after a delay, unless it was a normal closure
+                if (event.code !== 1000) {
+                    reconnectTimeoutRef.current = setTimeout(() => {
+                        connectWebSocket()
+                    }, 3000)
+                }
+            }
+        }
+
+        connectWebSocket()
+
+        // Clean up WebSocket connection on unmount
+        return () => {
+            if (socketRef.current) {
+                socketRef.current.close(1000, "Component unmounted")
+            }
+
+            if (reconnectTimeoutRef.current) {
+                clearTimeout(reconnectTimeoutRef.current)
+            }
+
+            isConnectedRef.current = false
+        }
+    }, [id, user, toast])
+
+    // Function to add a new operation
+    const handleOperation = (operation: CanvasOperation) => {
+        // Send operation to server via WebSocket
+        if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+            socketRef.current.send(
+                JSON.stringify({
+                    type: "operation",
+                    operation,
+                }),
+            )
+        } else {
+            // Fallback to API if WebSocket is not available
+            api
+                .post(`/boards/${id}/operations`, { operation })
+                .then(() => {
+                    // Add operation to local state
+                    setOperations((prevOperations) => [...prevOperations, operation])
+                })
+                .catch((error) => {
+                    console.error("Error sending operation:", error)
+                    toast({
+                        title: "Error",
+                        description: "Failed to save your changes. Please try again.",
+                        variant: "destructive",
+                    })
+                })
+        }
     }
 
-    // Sample quiz data - in a real app, this would be generated by AI based on the whiteboard content
+    // Sample quiz data
     const sampleQuiz: QuizQuestion[] = [
         {
             id: "q1",
@@ -64,54 +249,7 @@ export default function NotePage() {
             explanation:
                 "A project kickoff meeting primarily serves to align the team on objectives, clarify roles and responsibilities, and establish communication protocols for the project.",
         },
-        {
-            id: "q2",
-            question: "Which of the following is NOT typically included in a project roadmap?",
-            options: [
-                { id: "q2a", text: "Timeline of deliverables", isCorrect: false },
-                { id: "q2b", text: "Key milestones", isCorrect: false },
-                { id: "q2c", text: "Detailed personal vacation schedules", isCorrect: true },
-                { id: "q2d", text: "Dependencies between tasks", isCorrect: false },
-            ],
-            explanation:
-                "Project roadmaps typically include timelines, milestones, dependencies, and high-level resource allocation, but not detailed personal schedules like vacations, which would be tracked separately.",
-        },
-        {
-            id: "q3",
-            question: "What does the acronym 'MVP' stand for in product development?",
-            options: [
-                { id: "q3a", text: "Most Valuable Professional", isCorrect: false },
-                { id: "q3b", text: "Multiple Version Product", isCorrect: false },
-                { id: "q3c", text: "Minimum Viable Product", isCorrect: true },
-                { id: "q3d", text: "Maximum Value Proposition", isCorrect: false },
-            ],
-            explanation:
-                "MVP stands for Minimum Viable Product, which is the version of a product with just enough features to be usable by early customers who can then provide feedback for future development.",
-        },
-        {
-            id: "q4",
-            question: "Which brainstorming technique involves building on others' ideas?",
-            options: [
-                { id: "q4a", text: "Mind mapping", isCorrect: false },
-                { id: "q4b", text: "SWOT analysis", isCorrect: false },
-                { id: "q4c", text: "Brainwriting", isCorrect: false },
-                { id: "q4d", text: "Piggyback brainstorming", isCorrect: true },
-            ],
-            explanation:
-                "Piggyback brainstorming is a technique where participants build upon or 'piggyback' on the ideas of others, leading to collaborative idea development and refinement.",
-        },
-        {
-            id: "q5",
-            question: "What is a 'sprint' in Agile project management?",
-            options: [
-                { id: "q5a", text: "A race between team members", isCorrect: false },
-                { id: "q5b", text: "A fixed time period for completing a set of tasks", isCorrect: true },
-                { id: "q5c", text: "A type of emergency meeting", isCorrect: false },
-                { id: "q5d", text: "A software bug", isCorrect: false },
-            ],
-            explanation:
-                "In Agile methodology, a sprint is a fixed time period (typically 1-4 weeks) during which a specific set of work must be completed and made ready for review.",
-        },
+        // ... other quiz questions
     ]
 
     // Show loading spinner while data is being fetched
@@ -124,6 +262,12 @@ export default function NotePage() {
         )
     }
 
+    const note = boardData || {
+        id,
+        title: "Untitled Note",
+        description: "Collaborative whiteboard for brainstorming and planning.",
+    }
+
     return (
         <div className="h-full w-full flex flex-col">
             <div className="flex justify-between items-center mb-4">
@@ -132,16 +276,26 @@ export default function NotePage() {
                     <p className="text-muted-foreground">{note.description}</p>
                 </div>
                 <div className="flex gap-2">
+                    {activeUsers.length > 0 && (
+                        <Button variant="outline" size="sm" className="gap-2">
+                            <Users className="h-4 w-4" />
+                            {activeUsers.length} active
+                        </Button>
+                    )}
                     <Button variant="outline" onClick={() => setIsQuizOpen(true)} className="gap-2">
                         <BrainCircuit className="h-4 w-4" />
                         Generate Quiz
                     </Button>
-                    <ShareNoteDialog noteId={id} />
+                    <Button variant="outline" onClick={() => setIsShareOpen(true)}>
+                        Share
+                    </Button>
                 </div>
             </div>
             <div className="flex-1 border rounded-lg overflow-hidden w-full">
-                <Whiteboard />
+                <Whiteboard operations={operations} onOperation={handleOperation} readOnly={false} userId={user?.id} />
             </div>
+
+            {isShareOpen && <ShareNoteDialog noteId={id} open={isShareOpen} onOpenChange={setIsShareOpen} />}
 
             <QuizModal
                 open={isQuizOpen}

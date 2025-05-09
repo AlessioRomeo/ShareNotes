@@ -16,6 +16,7 @@ import { useToast } from "@/hooks/use-toast"
 import { Copy, Check, X, Edit, Eye } from "lucide-react"
 import api from "@/lib/api"
 import type { Note, Collaborator } from "@/types"
+import { Switch } from "@/components/ui/switch"
 
 interface ShareNoteDialogProps {
     noteId: string
@@ -26,6 +27,7 @@ interface ShareNoteDialogProps {
 export function ShareNoteDialog({ noteId, open, onOpenChange }: ShareNoteDialogProps) {
     const { toast } = useToast()
     const [email, setEmail] = useState("")
+    const [canEdit, setCanEdit] = useState(false)
     const [isLoading, setIsLoading] = useState(false)
     const [isRevoking, setIsRevoking] = useState<string | null>(null)
     const [copied, setCopied] = useState(false)
@@ -77,15 +79,16 @@ export function ShareNoteDialog({ noteId, open, onOpenChange }: ShareNoteDialogP
             await api.post(`/boards/${noteId}/share`, {
                 emails: [email],
                 action: "share",
-                can_update: false, // Default to view-only access
+                can_update: canEdit, // Use the selected permission level
             })
 
             toast({
                 title: "Note shared",
-                description: `The note has been shared with ${email}.`,
+                description: `The note has been shared with ${email} with ${canEdit ? "edit" : "view-only"} permissions.`,
                 duration: 3000,
             })
             setEmail("")
+            setCanEdit(false) // Reset to view-only for next share
 
             // Refresh note data to update shared_with list
             const response = await api.get(`/boards/${noteId}`)
@@ -153,22 +156,45 @@ export function ShareNoteDialog({ noteId, open, onOpenChange }: ShareNoteDialogP
                     </Button>
                 </div>
 
-                <div className="flex items-center space-x-2">
-                    <div className="grid flex-1 gap-2">
-                        <Label htmlFor="email" className="sr-only">
-                            Email
-                        </Label>
-                        <Input
-                            id="email"
-                            placeholder="Enter an email address"
-                            type="email"
-                            value={email}
-                            onChange={(e) => setEmail(e.target.value)}
-                        />
+                <div className="space-y-4">
+                    <div className="flex items-center space-x-2">
+                        <div className="grid flex-1 gap-2">
+                            <Label htmlFor="email" className="sr-only">
+                                Email
+                            </Label>
+                            <Input
+                                id="email"
+                                placeholder="Enter an email address"
+                                type="email"
+                                value={email}
+                                onChange={(e) => setEmail(e.target.value)}
+                            />
+                        </div>
+                        <Button type="button" onClick={handleShare} disabled={isLoading || !email.trim()} className="px-3">
+                            {isLoading ? "Sharing..." : "Share"}
+                        </Button>
                     </div>
-                    <Button type="button" onClick={handleShare} disabled={isLoading || !email.trim()} className="px-3">
-                        {isLoading ? "Sharing..." : "Share"}
-                    </Button>
+
+                    {/* Permission toggle */}
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-2">
+                            <Label htmlFor="can-edit" className="text-sm font-medium">
+                                {canEdit ? (
+                                    <span className="flex items-center">
+                    <Edit className="mr-1 h-4 w-4" /> Can edit
+                  </span>
+                                ) : (
+                                    <span className="flex items-center">
+                    <Eye className="mr-1 h-4 w-4" /> Can view
+                  </span>
+                                )}
+                            </Label>
+                            <span className="text-xs text-muted-foreground">
+                {canEdit ? "User can make changes to this note" : "User can only view this note"}
+              </span>
+                        </div>
+                        <Switch id="can-edit" checked={canEdit} onCheckedChange={setCanEdit} />
+                    </div>
                 </div>
 
                 {/* Display shared_with collaborators with revoke button */}
