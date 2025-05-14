@@ -11,6 +11,23 @@ import api from "@/lib/api"
 import type { CanvasOperation } from "@/types/canvas"
 import { useToast } from "@/hooks/use-toast"
 import { useProfile } from "@/components/providers/ProfileProvider"
+import { toPng } from "html-to-image"
+import type { Question } from "@/types/quiz"
+
+const sampleQuiz: QuizQuestion[] = [
+    {
+        id: "q1",
+        question: "What is the primary goal of a project kickoff meeting?",
+        options: [
+            { id: "q1a", text: "To assign blame for previous project failures", isCorrect: false },
+            { id: "q1b", text: "To establish project objectives and team roles", isCorrect: true },
+            { id: "q1c", text: "To determine the project budget only", isCorrect: false },
+            { id: "q1d", text: "To schedule future meetings", isCorrect: false },
+        ],
+        explanation:
+            "A project kickoff meeting primarily serves to align the team on objectives, clarify roles and responsibilities, and establish communication protocols for the project.",
+    },
+]
 
 interface BoardData {
     id: string
@@ -23,20 +40,18 @@ interface BoardData {
     updated_at: string
 }
 
-// User type for active users
 interface ActiveUser {
     id: string
     email: string
     cursor?: { x: number; y: number }
 }
 
-// Updated WebSocketMessage interface with proper types for all message types
 interface WebSocketMessage {
     type: string
     operation?: CanvasOperation
     operations?: CanvasOperation[]
     user?: ActiveUser
-    users?: ActiveUser[] // Added users array for active_users message type
+    users?: ActiveUser[]
 }
 
 export default function NotePage() {
@@ -51,24 +66,23 @@ export default function NotePage() {
     const [boardData, setBoardData] = useState<BoardData | null>(null)
     const [operations, setOperations] = useState<CanvasOperation[]>([])
     const [activeUsers, setActiveUsers] = useState<ActiveUser[]>([])
+    const [quizQuestions, setQuizQuestions] = useState<QuizQuestion[]>([])
+    const [isGeneratingQuiz, setIsGeneratingQuiz] = useState(false)
+    const whiteboardRef = useRef<HTMLDivElement>(null)
 
     const socketRef = useRef<WebSocket | null>(null)
     const isConnectedRef = useRef(false)
     const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
-    // Fetch initial board data and canvas operations
     useEffect(() => {
         if (!id) return
 
         const fetchBoard = async () => {
             setIsLoading(true)
             try {
-                const response = await api.get(`/boards/${id}`)
-                const data = response.data
+                const { data } = await api.get<BoardData>(`/boards/${id}`)
                 setBoardData(data)
-
-                // Initialize operations from the board data
-                if (data.canvas_operations && Array.isArray(data.canvas_operations)) {
+                if (Array.isArray(data.canvas_operations)) {
                     setOperations(data.canvas_operations)
                 }
             } catch (error) {
@@ -86,14 +100,19 @@ export default function NotePage() {
         fetchBoard()
     }, [id, toast])
 
-    // Set up WebSocket connection
     useEffect(() => {
         if (!id || !user?.email || isConnectedRef.current) return
 
         const connectWebSocket = () => {
-            // Create WebSocket connection
-            const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
-            const wsUrl = `${protocol}//${window.location.host}/api/boards/${id}/ws?userId=${user.id}&email=${encodeURIComponent(user.email)}`
+            const userId = (user as any)._id ?? (user as any).id ?? "anonymous"
+            const token = localStorage.getItem("token") ?? ""
+            const backendHost = process.env.NEXT_PUBLIC_BACKEND_WS ?? "ws://127.0.0.1:8080"
+
+            const wsUrl =
+                `${backendHost}/ws/boards/${encodeURIComponent(id)}` +
+                `?token=${encodeURIComponent(token)}` +
+                `&userId=${encodeURIComponent(userId)}` +
+                `&email=${encodeURIComponent(user.email)}`
 
             const socket = new WebSocket(wsUrl)
             socketRef.current = socket
@@ -101,44 +120,32 @@ export default function NotePage() {
             socket.onopen = () => {
                 console.log("WebSocket connection established")
                 isConnectedRef.current = true
-
-                // Clear any reconnect timeout
                 if (reconnectTimeoutRef.current) {
                     clearTimeout(reconnectTimeoutRef.current)
                     reconnectTimeoutRef.current = null
                 }
-
-                // Request initial sync
                 socket.send(JSON.stringify({ type: "sync_request" }))
             }
 
             socket.onmessage = (event) => {
                 try {
                     const message = JSON.parse(event.data) as WebSocketMessage
-
                     switch (message.type) {
                         case "operation":
                             if (message.operation) {
-                                // Add new operation to the list
-                                setOperations((prevOperations) => [...prevOperations, message.operation!])
+                                setOperations((ops) => [...ops, message.operation!])
                             }
                             break
                         case "sync":
                             if (message.operations) {
-                                // Replace all operations with the synced state
                                 setOperations(message.operations)
                             }
                             break
                         case "user_joined":
                             if (message.user) {
-                                setActiveUsers((prev) => {
-                                    // Add user if not already in the list
-                                    if (!prev.some((u) => u.id === message.user!.id)) {
-                                        return [...prev, message.user!]
-                                    }
-                                    return prev
-                                })
-
+                                setActiveUsers((prev) =>
+                                    prev.some((u) => u.id === message.user!.id) ? prev : [...prev, message.user!],
+                                )
                                 toast({
                                     title: "User joined",
                                     description: `${message.user.email} joined the whiteboard`,
@@ -148,7 +155,6 @@ export default function NotePage() {
                         case "user_left":
                             if (message.user) {
                                 setActiveUsers((prev) => prev.filter((u) => u.id !== message.user!.id))
-
                                 toast({
                                     title: "User left",
                                     description: `${message.user.email} left the whiteboard`,
@@ -156,76 +162,56 @@ export default function NotePage() {
                             }
                             break
                         case "active_users":
-                            if (message.users && Array.isArray(message.users)) {
+                            if (Array.isArray(message.users)) {
                                 setActiveUsers(message.users)
                             }
                             break
                         case "cursor_update":
-                            if (message.user && message.user.cursor) {
+                            if (message.user?.cursor) {
                                 setActiveUsers((prev) =>
                                     prev.map((u) => (u.id === message.user!.id ? { ...u, cursor: message.user!.cursor } : u)),
                                 )
                             }
                             break
                     }
-                } catch (error) {
-                    console.error("Error processing WebSocket message:", error)
+                } catch (err) {
+                    console.error("Error processing WS message:", err)
                 }
             }
 
-            socket.onerror = (error) => {
-                console.error("WebSocket error:", error)
+            socket.onerror = (err) => {
+                console.error(`WebSocket error: ${err}`)
             }
 
             socket.onclose = (event) => {
-                console.log("WebSocket connection closed", event.code, event.reason)
+                console.log("WebSocket closed", event.code, event.reason)
                 isConnectedRef.current = false
-
-                // Attempt to reconnect after a delay, unless it was a normal closure
                 if (event.code !== 1000) {
-                    reconnectTimeoutRef.current = setTimeout(() => {
-                        connectWebSocket()
-                    }, 3000)
+                    reconnectTimeoutRef.current = setTimeout(connectWebSocket, 3000)
                 }
             }
         }
 
         connectWebSocket()
 
-        // Clean up WebSocket connection on unmount
         return () => {
-            if (socketRef.current) {
-                socketRef.current.close(1000, "Component unmounted")
-            }
-
+            socketRef.current?.close(1000, "Component unmounted")
             if (reconnectTimeoutRef.current) {
                 clearTimeout(reconnectTimeoutRef.current)
             }
-
             isConnectedRef.current = false
         }
     }, [id, user, toast])
 
-    // Function to add a new operation
     const handleOperation = (operation: CanvasOperation) => {
-        // Send operation to server via WebSocket
-        if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
-            socketRef.current.send(
-                JSON.stringify({
-                    type: "operation",
-                    operation,
-                }),
-            )
+        if (socketRef.current?.readyState === WebSocket.OPEN) {
+            socketRef.current.send(JSON.stringify({ type: "operation", operation }))
         } else {
-            // Fallback to API if WebSocket is not available
             api
                 .post(`/boards/${id}/operations`, { operation })
-                .then(() => {
-                    // Add operation to local state
-                    setOperations((prevOperations) => [...prevOperations, operation])
-                })
-                .catch((error) => {
-                    console.error("Error sending operation:", error)
+                .then(() => setOperations((prev) => [...prev, operation]))
+                .catch((err) => {
+                    console.error("Error sending op:", err)
                     toast({
                         title: "Error",
                         description: "Failed to save your changes. Please try again.",
@@ -235,24 +221,54 @@ export default function NotePage() {
         }
     }
 
-    // Sample quiz data
-    const sampleQuiz: QuizQuestion[] = [
-        {
-            id: "q1",
-            question: "What is the primary goal of a project kickoff meeting?",
-            options: [
-                { id: "q1a", text: "To assign blame for previous project failures", isCorrect: false },
-                { id: "q1b", text: "To establish project objectives and team roles", isCorrect: true },
-                { id: "q1c", text: "To determine the project budget only", isCorrect: false },
-                { id: "q1d", text: "To schedule future meetings", isCorrect: false },
-            ],
-            explanation:
-                "A project kickoff meeting primarily serves to align the team on objectives, clarify roles and responsibilities, and establish communication protocols for the project.",
-        },
-        // ... other quiz questions
-    ]
+    const handleGenerateQuiz = async () => {
+        if (!whiteboardRef.current) return
 
-    // Show loading spinner while data is being fetched
+        setIsGeneratingQuiz(true)
+        try {
+            // Capture the whiteboard as an image
+            const dataUrl = await toPng(whiteboardRef.current)
+            // Convert data URL to base64 string (remove the prefix)
+            const base64Image = dataUrl.split(",")[1]
+
+            // Send to backend
+            const { data } = await api.post(`/quizzes/create`, {
+                title: note.title,
+                description: note.description,
+                image_data: base64Image,
+                reference_board: id,
+            })
+
+            // Convert backend questions to frontend format
+            const formattedQuestions: QuizQuestion[] = data.questions.map((q: Question, index: number) => {
+                // Map A, B, C, D to index 0, 1, 2, 3
+                const correctIndex = q.correct_answer.charCodeAt(0) - 65
+
+                return {
+                    id: `q${index + 1}`,
+                    question: q.prompt,
+                    options: q.options.map((text, i) => ({
+                        id: `q${index + 1}${String.fromCharCode(97 + i)}`,
+                        text,
+                        isCorrect: i === correctIndex,
+                    })),
+                }
+            })
+
+            setQuizQuestions(formattedQuestions)
+            setIsQuizOpen(true)
+        } catch (error) {
+            console.error("Error generating quiz:", error)
+            toast({
+                title: "Error",
+                description: `Failed to generate quiz. ${(error as Error).message}`,
+                variant: "destructive",
+            })
+        } finally {
+            setIsGeneratingQuiz(false)
+        }
+    }
+
     if (isLoading) {
         return (
             <div className="h-full w-full flex items-center justify-center">
@@ -262,7 +278,7 @@ export default function NotePage() {
         )
     }
 
-    const note = boardData || {
+    const note = boardData ?? {
         id,
         title: "Untitled Note",
         description: "Collaborative whiteboard for brainstorming and planning.",
@@ -270,6 +286,7 @@ export default function NotePage() {
 
     return (
         <div className="h-full w-full flex flex-col">
+            {/* header/buttons */}
             <div className="flex justify-between items-center mb-4">
                 <div>
                     <h1 className="text-2xl font-bold">{note.title}</h1>
@@ -282,16 +299,18 @@ export default function NotePage() {
                             {activeUsers.length} active
                         </Button>
                     )}
-                    <Button variant="outline" onClick={() => setIsQuizOpen(true)} className="gap-2">
+                    <Button variant="outline" onClick={handleGenerateQuiz} disabled={isGeneratingQuiz} className="gap-2">
                         <BrainCircuit className="h-4 w-4" />
-                        Generate Quiz
+                        {isGeneratingQuiz ? "Generating..." : "Generate Quiz"}
                     </Button>
                     <Button variant="outline" onClick={() => setIsShareOpen(true)}>
                         Share
                     </Button>
                 </div>
             </div>
-            <div className="flex-1 border rounded-lg overflow-hidden w-full">
+
+            {/* whiteboard */}
+            <div className="flex-1 border rounded-lg overflow-hidden w-full" ref={whiteboardRef}>
                 <Whiteboard operations={operations} onOperation={handleOperation} readOnly={false} userId={user?.id} />
             </div>
 
@@ -301,7 +320,8 @@ export default function NotePage() {
                 open={isQuizOpen}
                 onOpenChange={setIsQuizOpen}
                 title={`Quiz on ${note.title}`}
-                questions={sampleQuiz}
+                questions={quizQuestions.length > 0 ? quizQuestions : sampleQuiz}
+                boardId={id}
             />
         </div>
     )

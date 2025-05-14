@@ -16,21 +16,23 @@ import { Progress } from "@/components/ui/progress"
 import { cn } from "@/lib/utils"
 
 export interface QuizQuestion {
-  id: string
-  question: string
-  options: {
     id: string
-    text: string
-    isCorrect: boolean
-  }[]
-  explanation?: string
+    question: string
+    options: {
+        id: string
+        text: string
+        isCorrect: boolean
+    }[]
+    explanation?: string
 }
 
 interface QuizModalProps {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  title: string
-  questions: QuizQuestion[]
+    open: boolean
+    onOpenChange: (open: boolean) => void
+    title: string
+    questions: QuizQuestion[]
+    boardId?: string
+    onCreateQuiz?: (imageData: string) => Promise<QuizQuestion[]>
 }
 
 export function QuizModal({ open, onOpenChange, title, questions }: QuizModalProps) {

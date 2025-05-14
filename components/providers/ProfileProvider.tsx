@@ -11,6 +11,7 @@ import {redirect, useRouter} from 'next/navigation';
 import api from '@/lib/api';
 
 export interface User {
+    _id: string;
     id: string;
     first_name: string;
     last_name: string;

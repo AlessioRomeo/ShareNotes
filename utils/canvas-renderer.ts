@@ -174,6 +174,7 @@ function renderTextOperation(ctx: CanvasRenderingContext2D, operation: TextOpera
     ctx.font = `${operation.fontSize}px ${operation.fontFamily}`
     ctx.fillStyle = operation.textColor
     ctx.fillText(operation.text, operation.x, operation.y)
+    ctx.fillText(operation.text, operation.x, operation.y)
 }
 
 function renderImageOperation(ctx: CanvasRenderingContext2D, operation: ImageOperation): void {
